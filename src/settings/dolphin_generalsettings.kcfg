@@ -89,7 +89,7 @@
         </entry>
         <entry name="GlobalViewProps" type="Bool">
             <label>Should the view properties be used for all folders</label>
-            <default>true</default>
+            <default>false</default>
         </entry>
         <entry name="BrowseThroughArchives" type="Bool">
             <label>Browse through archives</label>

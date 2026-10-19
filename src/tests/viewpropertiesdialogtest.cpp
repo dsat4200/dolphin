@@ -25,12 +25,21 @@ class ViewPropertiesDialogTest : public QObject
 
 private Q_SLOTS:
     void initTestCase();
+    void testFoldersAreRememberedSeparatelyByDefault();
     void testTheDefaultStyleReachesFoldersWithoutAStyleOfTheirOwn();
 };
 
 void ViewPropertiesDialogTest::initTestCase()
 {
     QStandardPaths::setTestModeEnabled(true);
+}
+
+void ViewPropertiesDialogTest::testFoldersAreRememberedSeparatelyByDefault()
+{
+    GeneralSettings *settings = GeneralSettings::self();
+    const bool usedDefaults = settings->useDefaults(true);
+    QVERIFY(!GeneralSettings::globalViewProps());
+    settings->useDefaults(usedDefaults);
 }
 
 // In per-folder mode, the dialog opened without a view edits the style that a folder is shown with
