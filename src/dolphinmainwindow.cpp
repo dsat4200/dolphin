@@ -535,13 +535,17 @@ void DolphinMainWindow::openNewWindow(const QUrl &url)
 
 void DolphinMainWindow::slotSplitViewChanged()
 {
-    m_tabWidget->currentTabPage()->setSplitViewEnabled(GeneralSettings::splitView(), WithAnimation);
+    if (GeneralSettings::splitView()) {
+        m_tabWidget->splitNextLeaf();
+    } else {
+        m_tabWidget->unsplitLeaves();
+    }
     updateSplitActions();
 }
 
 void DolphinMainWindow::slotTabBarChanged()
 {
-    m_tabWidget->setTabBarAutoHide(!GeneralSettings::alwaysShowTabBar());
+    m_tabWidget->setTabBarAutoHide(false);
     m_tabWidget->tabBar()->setTabsClosable(GeneralSettings::showCloseButtonOnTabs());
 }
 
@@ -1103,16 +1107,7 @@ void DolphinMainWindow::invertSelection()
 
 void DolphinMainWindow::toggleSplitView()
 {
-    QUrl newSplitViewUrl;
-    const KFileItemList list = m_activeViewContainer->view()->selectedItems();
-    if (list.count() == 1) {
-        const KFileItem &item = list.first();
-        newSplitViewUrl = DolphinView::openItemAsFolderUrl(item);
-    }
-
-    DolphinTabPage *tabPage = m_tabWidget->currentTabPage();
-    tabPage->setSplitViewEnabled(!tabPage->splitViewEnabled(), WithAnimation, newSplitViewUrl);
-    m_tabWidget->updateTabName(m_tabWidget->indexOf(tabPage));
+    m_tabWidget->splitNextLeaf();
     updateViewActions();
 }
 
@@ -1735,8 +1730,8 @@ void DolphinMainWindow::tabCountChanged(int count)
         actionCollection()->action(QStringLiteral("activate_tab_%1").arg(i))->setEnabled(enableTabActions);
     }
     actionCollection()->action(QStringLiteral("activate_last_tab"))->setEnabled(enableTabActions);
-    actionCollection()->action(QStringLiteral("activate_next_tab"))->setEnabled(enableTabActions);
-    actionCollection()->action(QStringLiteral("activate_prev_tab"))->setEnabled(enableTabActions);
+    actionCollection()->action(QStringLiteral("activate_next_tab"))->setEnabled(true);
+    actionCollection()->action(QStringLiteral("activate_prev_tab"))->setEnabled(true);
 }
 
 void DolphinMainWindow::updateWindowTitle()
@@ -2049,6 +2044,15 @@ void DolphinMainWindow::setupActions()
 
     connect(m_splitViewAction, &QAction::triggered, this, &DolphinMainWindow::toggleSplitView);
     connect(m_splitViewMenuAction, &QAction::triggered, this, &DolphinMainWindow::toggleSplitView);
+
+    auto unsplit = actionCollection()->addAction(QStringLiteral("linear_unsplit"));
+    unsplit->setText(i18n("Separate Split into Tabs"));
+    connect(unsplit, &QAction::triggered, m_tabWidget, &DolphinTabWidget::unsplitLeaves);
+    for (const int delta : {-1, 1}) {
+        auto move = actionCollection()->addAction(delta < 0 ? QStringLiteral("linear_move_left") : QStringLiteral("linear_move_right"));
+        move->setText(delta < 0 ? i18n("Move Tab Group Left") : i18n("Move Tab Group Right"));
+        connect(move, &QAction::triggered, m_tabWidget, [this, delta]() { m_tabWidget->moveLinearGroup(delta); });
+    }
 
     QAction *popoutSplit = actionCollection()->addAction(QStringLiteral("popout_split_view"));
     popoutSplit->setWhatsThis(xi18nc("@info:whatsthis",
@@ -2929,6 +2933,15 @@ void DolphinMainWindow::updateSplitActions()
             setActionPopupMode(m_splitViewAction, QToolButton::DelayedPopup);
         }
     }
+
+    // Pairing is not a destructive split toggle. Keep native UI labels honest
+    // and expose the separate, state-preserving unsplit action via shortcuts.
+    m_splitViewAction->setText(i18n("Pair Next Tab"));
+    m_splitViewAction->setToolTip(i18n("Pair with the next tab without reloading either view"));
+    m_splitViewMenuAction->setText(m_splitViewAction->text());
+    m_splitViewAction->setEnabled(!tabPage->splitViewEnabled());
+    m_splitViewMenuAction->setEnabled(!tabPage->splitViewEnabled());
+    actionCollection()->action(QStringLiteral("linear_unsplit"))->setEnabled(tabPage->splitViewEnabled());
 
     // Update state from toolbar action
     m_splitViewMenuAction->setToolTip(m_splitViewAction->toolTip());

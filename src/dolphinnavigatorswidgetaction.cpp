@@ -45,6 +45,17 @@ void DolphinNavigatorsWidgetAction::adjustSpacing()
 {
     m_previousWindowWidth = qobject_cast<QWidget *>(parent())->window()->width();
     auto viewGeometries = m_viewGeometriesHelper.viewGeometries();
+    if (viewGeometries.globalXOfSecondary != INT_MIN
+        && viewGeometries.globalXOfSecondary == viewGeometries.globalXOfPrimary) {
+        // Top/bottom content still has two horizontal navigators at the top.
+        m_splitter->setSizes({1, 1});
+        spacing(Primary, Leading)->setMinimumWidth(0);
+        for (auto side : {Primary, Secondary}) {
+            spacing(side, Trailing)->setMinimumWidth(0);
+            spacing(side, Trailing)->setMaximumWidth(QWIDGETSIZE_MAX);
+        }
+        return;
+    }
     const int widthOfSplitterPrimary = viewGeometries.globalXOfPrimary + viewGeometries.widthOfPrimary - viewGeometries.globalXOfNavigatorsWidget;
     const QList<int> splitterSizes = {widthOfSplitterPrimary, m_splitter->width() - widthOfSplitterPrimary - m_splitter->handleWidth()};
     m_splitter->setSizes(splitterSizes);

@@ -41,10 +41,11 @@ DolphinTabWidget::DolphinTabWidget(DolphinNavigatorsWidgetAction *navigatorsWidg
     connect(tabBar, &DolphinTabBar::tabRenamed, this, &DolphinTabWidget::renameTab);
 
     setTabBar(tabBar);
+    connect(this, &DolphinTabWidget::activeViewChanged, this, [this]() { this->tabBar()->update(); });
     setDocumentMode(true);
     setElideMode(Qt::ElideRight);
     setUsesScrollButtons(true);
-    setTabBarAutoHide(!GeneralSettings::alwaysShowTabBar());
+    setTabBarAutoHide(false);
     tabBar->setTabsClosable(GeneralSettings::showCloseButtonOnTabs());
 
     auto stackWidget{findChild<QStackedWidget *>()};
@@ -175,11 +176,7 @@ void DolphinTabWidget::openNewActivatedTab(const QUrl &primaryUrl, const QUrl &s
     DolphinTabPage *tabPage = openNewTab(primaryUrl, secondaryUrl);
     Q_EMIT activeViewChanged(tabPage->activeViewContainer());
 
-    if (GeneralSettings::openNewTabAfterLastTab()) {
-        setCurrentIndex(count() - 1);
-    } else {
-        setCurrentIndex(currentIndex() + 1);
-    }
+    setCurrentWidget(tabPage);
 }
 
 DolphinTabPage *DolphinTabWidget::openNewTab(const QUrl &primaryUrl, const QUrl &secondaryUrl, DolphinTabWidget::NewTabPosition position)
@@ -190,16 +187,12 @@ DolphinTabPage *DolphinTabWidget::openNewTab(const QUrl &primaryUrl, const QUrl 
     tabPage->setActive(false);
     connect(tabPage, &DolphinTabPage::activeViewChanged, this, &DolphinTabWidget::activeViewChanged);
     connect(tabPage, &DolphinTabPage::activeViewUrlChanged, this, &DolphinTabWidget::tabUrlChanged);
-    connect(tabPage->activeViewContainer(), &DolphinViewContainer::captionChanged, this, [this, tabPage]() {
+    connect(tabPage->activeViewContainer(), &DolphinViewContainer::captionChanged, tabPage, [this, tabPage]() {
         updateTabName(indexOf(tabPage));
     });
 
     if (position == NewTabPosition::FollowSetting) {
-        if (GeneralSettings::openNewTabAfterLastTab()) {
-            position = NewTabPosition::AtEnd;
-        } else {
-            position = NewTabPosition::AfterCurrent;
-        }
+        position = NewTabPosition::AfterCurrent;
     }
 
     int newTabIndex = -1;
@@ -308,6 +301,15 @@ void DolphinTabWidget::closeTab(const int index)
     Q_ASSERT(index >= 0);
     Q_ASSERT(index < count());
 
+    if (tabPageAt(index)->splitViewEnabled()) {
+        activateTab(index);
+        // Separate the original objects before serializing/deleting one leaf.
+        const bool primary = currentTabPage()->primaryViewActive();
+        unsplitLeaves();
+        closeTab(primary ? index : index + 1);
+        return;
+    }
+
     if (count() < 2) {
         // Close Dolphin when closing the last tab.
         parentWidget()->close();
@@ -335,14 +337,22 @@ void DolphinTabWidget::activateLastTab()
 
 void DolphinTabWidget::activateNextTab()
 {
+    if (currentTabPage()->splitViewEnabled() && currentTabPage()->primaryViewActive()) {
+        currentTabPage()->switchActiveView();
+        return;
+    }
     const int index = currentIndex() + 1;
-    setCurrentIndex(index < count() ? index : 0);
+    activateLeaf(index < count() ? index : 0, false);
 }
 
 void DolphinTabWidget::activatePrevTab()
 {
+    if (currentTabPage()->splitViewEnabled() && !currentTabPage()->primaryViewActive()) {
+        currentTabPage()->switchActiveView();
+        return;
+    }
     const int index = currentIndex() - 1;
-    setCurrentIndex(index >= 0 ? index : (count() - 1));
+    activateLeaf(index >= 0 ? index : (count() - 1), true);
 }
 
 void DolphinTabWidget::restoreClosedTab(const QByteArray &state)
@@ -401,7 +411,7 @@ void DolphinTabWidget::detachTab(int index)
     job->setDesktopName(QStringLiteral("org.kde.dolphin"));
     job->start();
 
-    closeTab(index);
+    closeLinearGroup(index);
 }
 
 void DolphinTabWidget::openNewActivatedTab(int index)
@@ -465,6 +475,9 @@ void DolphinTabWidget::tabUrlChanged(const QUrl &url)
 void DolphinTabWidget::currentTabChanged(int index)
 {
     DolphinTabPage *tabPage = tabPageAt(index);
+    if (!tabPage) {
+        return;
+    }
     if (tabPage == m_lastViewedTab) {
         return;
     }
@@ -517,7 +530,9 @@ void DolphinTabWidget::tabRemoved(int index)
     QTabWidget::tabRemoved(index);
 
     Q_EMIT tabCountChanged(count());
-    m_lastViewedTab->setActive(true);
+    if (m_lastViewedTab && m_lastViewedTab->primaryViewContainer()) {
+        m_lastViewedTab->setActive(true);
+    }
 }
 
 QString DolphinTabWidget::tabName(DolphinTabPage *tabPage) const
@@ -635,3 +650,87 @@ const std::optional<const DolphinTabWidget::ViewIndex> DolphinTabWidget::viewSho
 }
 
 #include "moc_dolphintabwidget.cpp"
+// Included in dolphintabwidget.cpp. Real DolphinViewContainers (and their
+// histories, selections and scroll state) move between pages without reloads.
+void DolphinTabWidget::activateLeaf(int index, bool secondary)
+{
+    auto page = tabPageAt(index);
+    if (!page) {
+        return;
+    }
+    setCurrentIndex(index);
+    const bool primary = !secondary || !page->splitViewEnabled();
+    if (page->primaryViewActive() != primary) {
+        page->switchActiveView();
+    }
+    tabBar()->update();
+}
+
+void DolphinTabWidget::splitNextLeaf()
+{
+    auto page = currentTabPage();
+    if (!page || page->splitViewEnabled()) {
+        return;
+    }
+    const int index = currentIndex();
+    auto next = tabPageAt(index + 1);
+    if (next && next->splitViewEnabled()) {
+        return;
+    }
+    if (!next) {
+        next = openNewTab(page->primaryViewContainer()->url(), QUrl(), NewTabPosition::AfterCurrent);
+    }
+    auto leaf = next->releaseLeaf(true);
+    leaf->setProperty("linearTabLabel", next->customLabel());
+    removeTab(index + 1);
+    next->deleteLater();
+    page->adoptSecondaryLeaf(leaf);
+    page->disconnectNavigators();
+    m_lastViewedTab = nullptr;
+    currentTabChanged(index);
+    updateTabName(index);
+    tabBar()->update();
+}
+
+void DolphinTabWidget::unsplitLeaves()
+{
+    auto page = currentTabPage();
+    if (!page || !page->splitViewEnabled()) {
+        return;
+    }
+    const bool primaryFocused = page->primaryViewActive();
+    const int index = currentIndex();
+    auto leaf = page->releaseLeaf(false);
+    auto next = new DolphinTabPage(leaf->url(), QUrl(), this, leaf);
+    next->setCustomLabel(leaf->property("linearTabLabel").toString());
+    next->setActive(false);
+    connect(next, &DolphinTabPage::activeViewChanged, this, &DolphinTabWidget::activeViewChanged);
+    connect(next, &DolphinTabPage::activeViewUrlChanged, this, &DolphinTabWidget::tabUrlChanged);
+    insertTab(index + 1, next, QIcon(), tabName(next));
+    // releaseLeaf disconnected the current page's navigators; force the same
+    // native reconnect path even if the focused primary page did not change.
+    page->disconnectNavigators();
+    m_lastViewedTab = nullptr;
+    setCurrentIndex(primaryFocused ? index : index + 1);
+    currentTabChanged(currentIndex());
+    updateTabName(index);
+    tabBar()->update();
+}
+
+void DolphinTabWidget::moveLinearGroup(int delta)
+{
+    const int index = currentIndex();
+    if (index + delta >= 0 && index + delta < count()) {
+        tabBar()->moveTab(index, index + delta);
+    }
+}
+
+void DolphinTabWidget::closeLinearGroup(int index)
+{
+    activateTab(index);
+    if (currentTabPage()->splitViewEnabled()) {
+        unsplitLeaves();
+        closeTab(index + 1);
+    }
+    closeTab(index);
+}

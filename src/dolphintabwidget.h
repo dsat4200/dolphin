@@ -184,6 +184,12 @@ public Q_SLOTS:
      */
     void activatePrevTab();
 
+    void splitNextLeaf();
+    void unsplitLeaves();
+    void moveLinearGroup(int delta);
+    void activateLeaf(int index, bool secondary);
+    void closeLinearGroup(int index);
+
     /**
      * Is called when the user wants to reopen a previously closed tab from
      * the recent tabs menu.

@@ -77,3 +77,5 @@ if (Gem_test-unit_FOUND)
     add_test(NAME servicemenutest
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/../settings/contextmenu/test/test_run.rb)
 endif()
+ecm_add_test(dolphin-linear-test.cpp ${CMAKE_SOURCE_DIR}/src/dolphin.qrc
+  TEST_NAME dolphin-linear-test LINK_LIBRARIES dolphinprivate dolphinstatic Qt6::Test)

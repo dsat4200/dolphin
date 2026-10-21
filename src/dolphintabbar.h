@@ -24,6 +24,7 @@ Q_SIGNALS:
     void tabRenamed(int index, const QString &label);
 
 protected:
+    void paintEvent(QPaintEvent *event) override;
     QSize tabSizeHint(int index) const override;
     QSize minimumSizeHint() const override;
     void dragEnterEvent(QDragEnterEvent *event) override;

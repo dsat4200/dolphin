@@ -23,7 +23,7 @@ void resetSplitterSizes(QSplitter *splitter)
 }
 }
 
-DolphinTabPage::DolphinTabPage(const QUrl &primaryUrl, const QUrl &secondaryUrl, QWidget *parent)
+DolphinTabPage::DolphinTabPage(const QUrl &primaryUrl, const QUrl &secondaryUrl, QWidget *parent, DolphinViewContainer *existing)
     : QWidget(parent)
     , m_expandingContainer{nullptr}
     , m_primaryViewActive(true)
@@ -42,14 +42,14 @@ DolphinTabPage::DolphinTabPage(const QUrl &primaryUrl, const QUrl &secondaryUrl,
     layout->setRowStretch(1, 1);
 
     // Create a new primary view
-    m_primaryViewContainer = createViewContainer(primaryUrl);
+    m_primaryViewContainer = existing ? existing : createViewContainer(primaryUrl);
     connect(m_primaryViewContainer->view(), &DolphinView::urlChanged, this, &DolphinTabPage::activeViewUrlChanged);
     connect(m_primaryViewContainer->view(), &DolphinView::redirection, this, &DolphinTabPage::slotViewUrlRedirection);
 
     m_splitter->addWidget(m_primaryViewContainer);
     m_primaryViewContainer->show();
 
-    if (secondaryUrl.isValid() || GeneralSettings::splitView()) {
+    if (secondaryUrl.isValid()) {
         // Provide a secondary view, if the given secondary url is valid or if the
         // startup settings are set this way (use the url of the primary view).
         m_splitViewEnabled = true;
@@ -66,7 +66,7 @@ DolphinTabPage::DolphinTabPage(const QUrl &primaryUrl, const QUrl &secondaryUrl,
     // wrong here during construction. Disconnect to prevent the spurious toggle.
     disconnectViewActivatedSignals();
     m_primaryViewContainer->setActive(true);
-    connectViewActivatedSignals();
+    rewireLeaves();
 }
 
 bool DolphinTabPage::primaryViewActive() const
@@ -90,6 +90,8 @@ void DolphinTabPage::setSplitViewEnabled(bool enabled, Animated animated, const 
         return;
     }
 
+    // Upstream's animation is width-only; geometry-adaptive pairs are instant.
+    animated = WithoutAnimation;
     m_splitViewEnabled = enabled;
     if (animated == WithAnimation
         && (style()->styleHint(QStyle::SH_Widget_Animation_Duration, nullptr, this) < 1 || GlobalConfig::animationDurationFactor() <= 0.0)) {
@@ -182,6 +184,8 @@ void DolphinTabPage::setSplitViewEnabled(bool enabled, Animated animated, const 
 
         m_primaryViewContainer->slotSplitTabDisabled();
     }
+    rewireLeaves();
+    adaptSplitOrientation();
 }
 
 DolphinViewContainer *DolphinTabPage::primaryViewContainer() const
@@ -541,9 +545,9 @@ void DolphinTabPage::switchActiveView()
 
 void DolphinTabPage::connectViewActivatedSignals()
 {
-    connect(m_primaryViewContainer->view(), &DolphinView::activated, this, &DolphinTabPage::slotViewActivated);
+    connect(m_primaryViewContainer->view(), &DolphinView::activated, this, &DolphinTabPage::slotViewActivated, Qt::UniqueConnection);
     if (m_secondaryViewContainer) {
-        connect(m_secondaryViewContainer->view(), &DolphinView::activated, this, &DolphinTabPage::slotViewActivated);
+        connect(m_secondaryViewContainer->view(), &DolphinView::activated, this, &DolphinTabPage::slotViewActivated, Qt::UniqueConnection);
     }
 }
 
@@ -633,3 +637,100 @@ QSplitterHandle *DolphinTabPageSplitter::createHandle()
 }
 
 #include "moc_dolphintabpage.cpp"
+// Shared linear-tab adapter. Included in dolphintabpage.cpp so the upstream
+// view and navigator lifetimes remain owned by Dolphin, not an IPC controller.
+#include <QResizeEvent>
+#include <QTimer>
+
+void DolphinTabPage::rewireLeaves()
+{
+    for (auto container : {m_primaryViewContainer.data(), m_secondaryViewContainer.data()}) {
+        if (!container) {
+            continue;
+        }
+        disconnect(container, nullptr, this, nullptr);
+        disconnect(container->view(), nullptr, this, nullptr);
+        connect(container->view(), &DolphinView::activated, this, &DolphinTabPage::slotViewActivated);
+        connect(container->view(), &DolphinView::toggleActiveViewRequested, this, &DolphinTabPage::switchActiveView);
+        connect(container->view(), &DolphinView::redirection, this, &DolphinTabPage::slotViewUrlRedirection);
+        // Inactive-pane navigation/caption changes must refresh its label too.
+        connect(container, &DolphinViewContainer::captionChanged, this, [this]() {
+            Q_EMIT activeViewUrlChanged(activeViewContainer()->url());
+        });
+    }
+    if (activeViewContainer()) {
+        connect(activeViewContainer()->view(), &DolphinView::urlChanged, this, &DolphinTabPage::activeViewUrlChanged);
+    }
+}
+
+DolphinViewContainer *DolphinTabPage::releaseLeaf(bool primary)
+{
+    auto navigators = m_navigatorsWidget;
+    if (navigators) {
+        disconnectNavigators();
+    }
+    DolphinViewContainer *container = primary ? m_primaryViewContainer.data() : m_secondaryViewContainer.data();
+    Q_ASSERT(container);
+    disconnect(container, nullptr, this, nullptr);
+    disconnect(container->view(), nullptr, this, nullptr);
+    container->disconnectUrlNavigator();
+    container->setActive(false);
+    container->setParent(nullptr);
+    if (primary) {
+        m_primaryViewContainer = m_secondaryViewContainer;
+    }
+    m_secondaryViewContainer = nullptr;
+    m_primaryViewActive = true;
+    m_splitViewEnabled = false;
+    rewireLeaves();
+    if (navigators && m_primaryViewContainer) {
+        connectNavigators(navigators);
+        navigators->setSecondaryNavigatorVisible(false);
+    }
+    return container;
+}
+
+void DolphinTabPage::adoptSecondaryLeaf(DolphinViewContainer *container)
+{
+    Q_ASSERT(!m_splitViewEnabled && container);
+    auto navigators = m_navigatorsWidget;
+    if (navigators) {
+        disconnectNavigators();
+    }
+    m_secondaryViewContainer = container;
+    m_splitViewEnabled = true;
+    m_primaryViewActive = true;
+    m_splitter->addWidget(container);
+    container->show();
+    rewireLeaves();
+    adaptSplitOrientation();
+    m_splitter->setSizes({1, 1});
+    if (navigators) {
+        if (!navigators->secondaryUrlNavigator()) {
+            navigators->createSecondaryUrlNavigator();
+        }
+        connectNavigators(navigators);
+        navigators->setSecondaryNavigatorVisible(true);
+    }
+}
+
+void DolphinTabPage::adaptSplitOrientation()
+{
+    if (!m_splitViewEnabled) {
+        return;
+    }
+    // Use the whole content splitter, not either resized leaf. Primary stays
+    // left/top, secondary right/bottom; the tab row is never rotated.
+    const auto orientation = m_splitter->height() > m_splitter->width() ? Qt::Vertical : Qt::Horizontal;
+    if (m_splitter->orientation() != orientation) {
+        m_splitter->setOrientation(orientation);
+        m_splitter->setSizes({1, 1});
+    }
+}
+
+void DolphinTabPage::resizeEvent(QResizeEvent *event)
+{
+    QWidget::resizeEvent(event);
+    // Layout geometry settles after QWidget's resize; no polling or reloads.
+    QTimer::singleShot(0, this, &DolphinTabPage::adaptSplitOrientation);
+}

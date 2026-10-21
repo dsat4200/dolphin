@@ -26,7 +26,19 @@ class DolphinTabPage : public QWidget
     Q_OBJECT
 
 public:
-    explicit DolphinTabPage(const QUrl &primaryUrl, const QUrl &secondaryUrl = QUrl(), QWidget *parent = nullptr);
+    explicit DolphinTabPage(const QUrl &primaryUrl, const QUrl &secondaryUrl = QUrl(), QWidget *parent = nullptr,
+                            DolphinViewContainer *existing = nullptr);
+
+    // Transfer real view objects; never reconstruct a directory to pair/unpair.
+    DolphinViewContainer *releaseLeaf(bool primary);
+    void adoptSecondaryLeaf(DolphinViewContainer *container);
+    void rewireLeaves();
+    void adaptSplitOrientation();
+
+protected:
+    void resizeEvent(QResizeEvent *event) override;
+
+public:
 
     /**
      * @return True if primary view is the active view in this tab.
