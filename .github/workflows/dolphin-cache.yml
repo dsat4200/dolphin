@@ -1,0 +1,42 @@
+name: Dolphin binary cache
+on:
+  workflow_dispatch:
+  push:
+    branches: [cammi-tabs]
+    paths:
+      - .cammi/**
+      - .github/workflows/dolphin-cache.yml
+permissions:
+  contents: write
+concurrency:
+  group: dolphin-binary-cache
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: .cammi
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: cachix/install-nix-action@3c6342b75005b9cc7c7d4069c3e9179247c89012
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            trusted-users = root runner
+      # Build/test before giving any subprocess access to the signing key.
+      - name: Build and test the exact configured derivation
+        shell: bash
+        run: |
+          cache=https://github.com/dsat4200/dolphin/releases/download/nix-dolphin-cache
+          options=()
+          if curl --fail --silent --location --max-time 15 "$cache/nix-cache-info" >/dev/null; then
+            options+=(--extra-substituters "$cache" --extra-trusted-public-keys 'dsat4200-dolphin-1:JfCNUIo1ot5MyYRAhqbxEBRnSsjMuqBJSW8xyvt7FHo=' --fallback)
+          fi
+          nix build .#dolphin --out-link result-dolphin --max-jobs 1 --cores 2 --print-build-logs "${options[@]}"
+      - name: Publish signed binary cache
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NIX_CACHE_SIGNING_KEY: ${{ secrets.NIX_CACHE_SIGNING_KEY }}
+        run: python3 packages/publish-dolphin-cache.py result-dolphin

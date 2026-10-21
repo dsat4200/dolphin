@@ -1,18 +1,16 @@
-# Cammi linear tabs
+# Cammi Dolphin
 
-Downstream of KDE Dolphin v26.04.3. This branch contains the source for flat
-leaf navigation, adjacent tab pairing, state-preserving unsplit, group moves,
-focused-leaf close/undo-close, adaptive portrait/landscape splits, and opaque
-folder-style labels with grayscale contrast text.
+Based on KDE Dolphin v26.04.3. The cammi-tabs branch contains the modified
+source and .cammi/ contains a reproducible Nix adapter over KDE's release tarball
+(which retains translations). Both contain the same downstream tab behavior.
 
-The authoritative Nix adapter and CI build are maintained at
-https://github.com/dsat4200/cammi-nix (packages/dolphin.nix). The fork is a
-reviewable source mirror, not a second independently versioned Nix package.
-The Nix recipe applies the same changes to KDE's release tarball to retain
-release translations and ensure that CI/cache and configured machines share
-exactly the same derivation. Update this branch when those adapters change.
+Build/test: nix build ./.cammi#dolphin
+Cache: https://github.com/dsat4200/dolphin/releases/download/nix-dolphin-cache
+GitHub Actions builds and tests the package before publishing signed NARs.
+Only the public verification key belongs in Nix client configurations; the
+private key is an Actions secret, never a repository file or store input.
 
-GitHub Actions in cammi-nix publishes a signed Nix cache to its GitHub Releases.
-Keep flake.lock synchronized to reuse the binary; no accounts or application
-state are included. Existing KDE licenses apply; downstream test code is
-GPL-2.0-or-later.
+Consumers should pin this flake with dir=.cammi and synchronize nixpkgs locks
+with .cammi/flake.lock to get matching binaries. CI publishes x86_64-linux.
+Other architectures/uncached versions require a source build until CI covers
+them. KDE's existing licenses apply; downstream tests are GPL-2.0-or-later.

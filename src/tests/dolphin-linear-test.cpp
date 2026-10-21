@@ -87,7 +87,7 @@ private Q_SLOTS:
         QCOMPARE(closed.size(), 1);
         tabs->restoreClosedTab(closed.first().at(1).toByteArray());
         QCOMPARE(tabs->count(), 4);
-        QCOMPARE(tabs->currentTabPage()->primaryViewContainer()->url(), QUrl::fromLocalFile(directory.filePath("C")));
+        QTRY_COMPARE(tabs->currentTabPage()->primaryViewContainer()->url(), QUrl::fromLocalFile(directory.filePath("C")));
     }
 };
 
