@@ -12,6 +12,10 @@ pkgs.kdePackages.dolphin.overrideAttrs (old: {
     cat >> src/tests/CMakeLists.txt <<'EOF'
     ecm_add_test(dolphin-linear-test.cpp ''${CMAKE_SOURCE_DIR}/src/dolphin.qrc
       TEST_NAME dolphin-linear-test LINK_LIBRARIES dolphinprivate dolphinstatic Qt6::Test)
+    # ECM sets a test-specific QT_PLUGIN_PATH, overriding checkPhase's environment.
+    # Preserve build plugins and add KIO's file/trash workers before wrapping.
+    set_tests_properties(dolphin-linear-test PROPERTIES ENVIRONMENT
+      "QT_PLUGIN_PATH=''${CMAKE_BINARY_DIR}/bin:${pkgs.kdePackages.kio}/lib/qt-6/plugins:${pkgs.qt6.qtbase}/lib/qt-6/plugins")
     EOF
   '';
   cmakeFlags = (old.cmakeFlags or [ ]) ++ [ "-DBUILD_TESTING=ON" ];
