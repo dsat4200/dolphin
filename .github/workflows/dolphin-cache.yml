@@ -25,6 +25,8 @@ jobs:
           extra_nix_config: |
             experimental-features = nix-command flakes
             trusted-users = root runner
+      - name: Test cache publisher
+        run: python3 tests/test_dolphin_cache.py
       # Build/test before giving any subprocess access to the signing key.
       - name: Build and test the exact configured derivation
         shell: bash

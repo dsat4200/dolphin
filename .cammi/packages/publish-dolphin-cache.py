@@ -33,9 +33,15 @@ def run(*args, **kwargs):
     return subprocess.run(args, check=True, **kwargs)
 
 
+def resolve_outputs(paths):
+    # Bare result symlink names are parsed as flake registry IDs by Nix.
+    return [str(Path(path).resolve(strict=True)) for path in paths]
+
+
 def main(paths):
     if not paths:
         raise ValueError('Pass a built Dolphin output path or result symlink')
+    paths = resolve_outputs(paths)
     secret = os.environ.get('NIX_CACHE_SIGNING_KEY')
     if not secret:
         raise ValueError('NIX_CACHE_SIGNING_KEY is required; do not commit it')
