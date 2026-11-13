@@ -1,9 +1,5 @@
 { pkgs }:
 
-let
-  fileTools = pkgs.callPackage ./dolphin-tools.nix { };
-in
-
 # Keep the small policy adapter on the pinned upstream build, retaining KIO,
 # native undo-close/session state and the distro's Qt wrapping/integration.
 pkgs.kdePackages.dolphin.overrideAttrs (old: {
@@ -23,12 +19,6 @@ pkgs.kdePackages.dolphin.overrideAttrs (old: {
     EOF
   '';
   cmakeFlags = (old.cmakeFlags or [ ]) ++ [ "-DBUILD_TESTING=ON" ];
-  # Ship the actions with this fork, not with one machine's mutable home state.
-  postInstall = (old.postInstall or "") + ''
-    mkdir -p "$out/share/kio/servicemenus"
-    cp ${fileTools}/share/kio/servicemenus/*.desktop "$out/share/kio/servicemenus/"
-  '';
-  passthru = (old.passthru or { }) // { inherit fileTools; };
   nativeCheckInputs = (old.nativeCheckInputs or [ ]) ++ [ pkgs.dbus ];
   doCheck = true;
   checkPhase = ''

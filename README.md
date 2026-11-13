@@ -6,9 +6,10 @@ Dolphin is KDE's file manager that lets you navigate and browse the contents of 
 
 ## Cammi fork
 
-The `cammi-tabs` branch adds linear tabs and bundled right-click tools:
-**Extract Pages to Images**, **PowerRename…** (KRename), and **Resize Pictures…**.
-See [the custom build guide](.cammi/README.md) for behavior, Nix builds and tests.
+The `cammi-tabs` branch adds linear tabs. PDF extraction, PowerRename and image
+resizing live in the independent [File Tools](https://github.com/dsat4200/file-tools)
+program, which installs ordinary Dolphin service menus without patching Dolphin.
+See [the custom build guide](.cammi/README.md) for Nix builds and tests.
 
 ## User Documentation
 

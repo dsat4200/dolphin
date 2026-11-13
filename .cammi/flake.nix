@@ -6,11 +6,7 @@
     pkgs = nixpkgs.legacyPackages.${system};
     dolphin = pkgs.callPackage ./packages/dolphin.nix { };
   in {
-    packages.${system} = { default = dolphin; inherit dolphin; dolphin-file-tools = dolphin.fileTools; };
-    checks.${system} = {
-      inherit dolphin;
-      dolphin-file-tools = dolphin.fileTools;
-      dolphin-file-menus = pkgs.callPackage ./tests/file-menus.nix { fileTools = dolphin.fileTools; };
-    };
+    packages.${system} = { default = dolphin; inherit dolphin; };
+    checks.${system}.dolphin = dolphin;
   };
 }
